@@ -1,0 +1,11 @@
+*.xlsm
+*.bak
+*.dwl
+*.dwl2
+*.pdb
+tests/*.exe
+publish/
+release/
+dist/Duall.Pluvial.dll
+dist/Duall.Pluvial.1.0.dll
+inspect-block.ps1

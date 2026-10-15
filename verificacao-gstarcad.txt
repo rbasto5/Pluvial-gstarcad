@@ -1,0 +1,9 @@
+﻿PASS: D-Prumada-Plu importado como bloco dinâmico.
+Propriedade: PRUMADA; opções: 100mm,200mm,150mm,110mm,90mm,75mm,65mm,50mm,40mm,32mm,25mm,20mm
+PASS: propriedade PRUMADA alterada para 150 mm.
+PASS: Pluvial/Reuso alteram somente sistema e layer, preservando diâmetro.
+PASS: calha criada com comprimento 3 m e largura 0,30 m.
+PASS: alça de comprimento atualiza geometria e registro para 4 m.
+PASS: cópia entre DWGs preserva origem, área e bloco dinâmico.
+PASS: arquivo salvo e reaberto com os dois blocos e registros.
+Concluído. Biblioteca contém exemplos com dados fictícios; inserir novos elementos pelo painel.
