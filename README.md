@@ -1,45 +1,47 @@
-# Duall Pluvial e Reuso — GstarCAD 2025
+# Duall Pluvial e Reuso — versão 1.5
 
-Plugin .NET com janela própria para selecionar áreas de contribuição, registrar pavimentos tipo e acumular vazões em calhas, prumadas e coletores. Os registros acompanham os blocos ao copiá-los para outro DWG.
+## Downloads e compatibilidade
 
-## Instalação
+- [Pacote GstarCAD 2025 — também testado pelo usuário no 2024 e 2026](Duall-Pluvial-Reuso-1.5.zip)
+- [Pacote específico GstarCAD 2023 — aguardando teste no CAD](Duall-Pluvial-Reuso-1.5-GstarCAD2023.zip)
+- [Instalação no GstarCAD 2023](INSTALAR-GSTARCAD-2023.md)
 
-1. Baixe e extraia **Duall-Pluvial-Reuso-1.1.zip** em uma pasta permanente.
-2. No GstarCAD 2025 Windows, execute `NETLOAD` e escolha **Duall.Pluvial.1.1.dll**.
-3. Execute `PLUVIAL`. Os próximos passos são feitos pelos botões da janela.
-4. Mantenha **D-Prumada-Plu.dwg** na mesma pasta da DLL.
+Em 16/10/2026, o usuário confirmou funcionamento do pacote 2025 no GstarCAD 2024 e 2026. Trata-se de validação relatada pelo usuário; não de certificação para todos os recursos ou atualizações dessas versões. O pacote 2023 foi compilado separadamente; o teste no outro computador permanece pendente.
+## Instalar
+Salve os desenhos e reinicie o GstarCAD 2025. Extraia o pacote mantendo D-Prumada-Plu.dwg junto de Duall.Pluvial.1.5.dll. Carregue a DLL com NETLOAD e abra PLUVIAL.
 
-Use uma sessão nova ao atualizar o plugin: DLLs já carregadas normalmente permanecem na memória até fechar o GstarCAD.
+## Limite e bitolas
+O limite de prumadas agora é 200 mm, tanto para sugestão quanto para escolha manual. A sugestão automática começa em 100 mm e usa a menor bitola cadastrada suficiente. Se a referência exigir mais de 200 mm, o painel não apresenta diâmetro sugerido válido: informa que é necessário redistribuir contribuições ou revisar a solução. O gráfico existente é preservado; isso não indica atendimento à vazão.
 
-## Uso
+Linha de tubos, na aba Projeto / elemento:
+- Amanco PVC branco: catálogo DN40, 50, 75, 100, 150 e 200. Sugestões automáticas: 100, 150 ou 200 mm.
+- Amanco PVC reforçado: catálogo DN40, 50, 75, 100 e 150. Sugestões automáticas: 100 ou 150 mm. DN200 não foi cadastrado nesta linha porque não consta da ficha consultada.
 
-- Informe obra, município, intensidade da chuva, TR, duração e fonte. Confirme que o desenho está em metros.
-- Escolha **Pluvial** ou **Reuso**. O cálculo é igual; a prumada usa respectivamente **D-HID-PLU-TET** ou **D-HID-APV-TET**.
-- Insira a prumada pelo painel. A definição **D-Prumada-Plu** é exclusiva do plugin e usa a propriedade dinâmica **PRUMADA**.
-- Em **Contribuições**, selecione contornos fechados, informe acréscimos e os pavimentos efetivamente atendidos. A lista de pavimentos tipo pode ser gerada pelo painel.
-- **Unir tubos no destino** acumula contribuições distintas, ignora repetições idênticas e rejeita revisões conflitantes da mesma origem/pavimento.
-- Copie o bloco entre DWGs e selecione-o no painel para continuar. Os registros são cópias, sem sincronização automática com arquivos anteriores.
-- Use **+ Calha** para o bloco retangular paramétrico, editável pelo painel e pelas alças do plugin. Essas alças não são parâmetros nativos do editor de blocos e dependem da DLL carregada.
-- Use **+ Coletor** para um trecho horizontal na implantação, informando comprimento, declividade e rugosidade.
+Novafort e bitolas acima de 200 mm ficaram fora desta versão conforme o novo escopo. Diâmetros existentes no bloco, como 90 e 110 mm, não são aceitos como DN dessas linhas. Registros anteriores sem linha recebem o padrão PVC branco; confira o material e salve/recalcule.
 
-## Verificações realizadas
+O campo Diâmetro manual continua permitindo ajustes compatíveis com a linha e o bloco. Zero retorna ao automático. Reduções abaixo do sugerido exibem aviso. A escolha manual do destino é preservada ao adicionar contribuições ou unir prumadas. Linha, sugestão e diâmetro adotado acompanham os registros no bloco e nas exportações.
 
-- 20 verificações automatizadas: cálculo, multiplicidade dos pavimentos, cópia de dados, duplicidade, conflito de revisões, fronteiras de diâmetro, sistema Pluvial/Reuso e compatibilidade com registros anteriores.
-- GstarCAD 2025: importação do bloco dinâmico com novo nome, alteração para 150 mm, aplicação dos layers Pluvial/Reuso, comprimento da calha por API, cópia entre bancos DWG e salvamento/reabertura com dados.
-- Inspeção visual da janela própria.
+## Teste curto
+Use chuva fictícia de 180 mm/h e acréscimo zero:
+1. PVC branco, área 80 m²: sugerido 150 mm. Área total 230 m²: sugerido 200 mm.
+2. Altere para PVC reforçado com 230 m²: não deve sugerir 200 mm; deve avisar que a linha não possui medida suficiente.
+3. PVC branco, área 500 m²: não deve sugerir 250 mm nem considerar 200 mm suficiente; deve avisar que excedeu o limite.
+4. Manual 250 mm deve ser recusado. Manual 200 mm é permitido no PVC branco quando disponível no bloco.
+5. Com área 80 m², manual 100 mm deve manter sugerido 150 mm e indicar adotado abaixo do sugerido.
 
-O arquivo **verificacao-gstarcad.txt** contém o resultado da execução nativa. **Biblioteca-Pluvial.dwg** contém exemplos com dados fictícios; para novos projetos, insira elementos pelo painel.
+## Funcionalidades preservadas
+Sacadas usam Length total da polyline × altura manual / 8. Telhados e implantação usam área de contorno fechado. Pavimentos tipo, várias contribuições, união sem duplicação e cópia de dados entre DWGs permanecem. Pluvial usa D-HID-PLU-TET; Reuso usa D-HID-APV-TET. Calhas e coletores continuam em standby.
 
-## Limites desta versão
+## Validação e fontes
+Compilação aprovada com assemblies do GstarCAD 2025; 72 verificações automáticas locais aprovadas. A interação da versão 1.5 ainda depende de teste no GstarCAD.
 
-O tubo vertical usa a tabela de referência da planilha fornecida. Isso não substitui a verificação pelos ábacos da NBR 10844 considerando lâmina, comprimento e tipo de saída. A calha verifica seção uniforme por Manning; bocais, curvas e extravasamento precisam de verificação adicional. O coletor usa Manning com lâmina de 2/3 do diâmetro interno; conferir diâmetro interno comercial.
+Catálogos consultados em 15/10/2026:
+- PVC branco: https://mediahub.wavin.com/m/7995c83fae479437/original/FT-Esgoto-SN.pdf
+- PVC reforçado: https://mediahub.wavin.com/m/1eb846476e17e767/original/FT-Linha-Esgoto-SR.pdf
 
-Contornos devem ser simples e sem sobreposições; os acréscimos de contribuição são informados pelo projetista. A atualização de áreas alteradas exige remover o registro anterior e adicioná-lo novamente. O arraste interativo das alças e o fluxo completo de seleção manual ainda precisam de testes adicionais.
+As bitolas cadastradas são nominais comerciais. O cálculo mantém a tabela de referência da planilha; esta atualização não substitui a verificação vertical pelos ábacos da NBR 10844 nem a conferência de diâmetro interno e capacidade da linha especificada.
 
-## Compilar e testar
+## Compatibilidade GstarCAD 2023
+Disponível pacote separado Duall-Pluvial-Reuso-1.5-GstarCAD2023.zip, com DLL Duall.Pluvial.1.5.GC2023.dll. Compilação 2023 e testes locais aprovados; validação dentro do CAD pendente. Consulte INSTALAR-GSTARCAD-2023.md. O script build.ps1 agora aceita -target 2023 ou 2025 e gera DLLs separadas por versão.
 
-Requisitos: Windows, GstarCAD 2025 e compilador do .NET Framework disponível no Windows. Execute `build.ps1` em PowerShell. Se o GstarCAD estiver em outra pasta, informe `-cad "caminho da instalação"`. O script aceita os fontes na raiz ou em `src/` e grava o plugin em `dist/`.
 
-Os assemblies do GstarCAD são referenciados da instalação e não são distribuídos no repositório. A planilha original, projetos do usuário e credenciais não fazem parte desta publicação.
-
-Fontes: `Core.cs` (modelo e cálculo), `Plugin.cs` (GstarCAD e dados DWG), `Panel.cs` (interface), `CoreTests.cs` (testes). A pasta `src/` no ambiente de desenvolvimento contém os mesmos fontes publicados na raiz deste repositório.

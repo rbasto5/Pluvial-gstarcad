@@ -9,3 +9,5 @@ release/
 dist/Duall.Pluvial.dll
 dist/Duall.Pluvial.1.0.dll
 inspect-block.ps1
+
+sdk/

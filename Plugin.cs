@@ -4,6 +4,14 @@ using System.Linq;
 using System.IO;
 using System.Text;
 using System.Globalization;
+#if GC2023
+using GrxCAD.Runtime;
+using GrxCAD.ApplicationServices;
+using GrxCAD.DatabaseServices;
+using GrxCAD.EditorInput;
+using GrxCAD.Geometry;
+using App = GrxCAD.ApplicationServices.Application;
+#else
 using Gssoft.Gscad.Runtime;
 using Gssoft.Gscad.ApplicationServices;
 using Gssoft.Gscad.DatabaseServices;
@@ -11,25 +19,31 @@ using Gssoft.Gscad.EditorInput;
 using Gssoft.Gscad.Geometry;
 using App = Gssoft.Gscad.ApplicationServices.Application;
 using CadException = Gssoft.Gscad.Runtime.Exception;
+#endif
 
 [assembly: CommandClass(typeof(Duall.Pluvial.Plugin))]
 [assembly: ExtensionApplication(typeof(Duall.Pluvial.Plugin))]
 namespace Duall.Pluvial {
  public class Plugin : IExtensionApplication {
+#if GC2023
+  internal const string CadVersion="2023";
+#else
+  internal const string CadVersion="2025";
+#endif
   internal static Panel Window;
   internal static ObjectId Selected=ObjectId.Null;
   internal static Database SelectedDb;
   const string Key="DUALL_PLUVIAL_V1";
   const string RiserBlockName="D-Prumada-Plu";
   const string RiserTemplate="D-Prumada-Plu.dwg";
-  static GutterGrips grips;
+  
   public void Initialize() {
    foreach(var assembly in AppDomain.CurrentDomain.GetAssemblies()) {
     if(assembly==typeof(Plugin).Assembly || !assembly.GetName().Name.StartsWith("Duall.Pluvial"))continue;
     var old=assembly.GetType("Duall.Pluvial.Plugin");if(old!=null)old.GetMethod("Terminate").Invoke(Activator.CreateInstance(old),null);
    }
-   grips=new GutterGrips(); Overrule.AddOverrule(RXObject.GetClass(typeof(BlockReference)),grips,false);Overrule.Overruling=true; App.DocumentManager.MdiActiveDocument.Editor.WriteMessage("\nDuall Pluvial carregado. Digite PLUVIAL para abrir o painel.\n"); }
-  public void Terminate() { if(grips!=null)Overrule.RemoveOverrule(RXObject.GetClass(typeof(BlockReference)),grips);if(Window!=null) Window.Dispose(); }
+   App.DocumentManager.MdiActiveDocument.Editor.WriteMessage("\nDuall Pluvial 1.5 — Prumadas. Digite PLUVIAL para abrir o painel.\n"); }
+  public void Terminate() { if(Window!=null) Window.Dispose(); }
   [CommandMethod("PLUDESATIVAR")]
   public void Disable() { Terminate(); }
   [CommandMethod("PLUVIAL")]
@@ -72,6 +86,11 @@ namespace Duall.Pluvial {
    var r=doc.Editor.GetEntity(opt); return r.Status==PromptStatus.OK?r.ObjectId:ObjectId.Null;
   }
   static void CheckSelected(Document doc) { if(Selected.IsNull || SelectedDb!=doc.Database || !Selected.IsValid || Selected.IsErased) throw new System.Exception("Clique em Selecionar elemento neste desenho."); }
+  static PromptSelectionResult SelectMany(Document doc,PromptSelectionOptions options,SelectionFilter filter) {
+   var previous=App.GetSystemVariable("PICKADD");
+   try {App.SetSystemVariable("PICKADD",2);options.SingleOnly=false;return doc.Editor.GetSelection(options,filter);}
+   finally {App.SetSystemVariable("PICKADD",previous);}
+  }
   static void Meters(Document doc) { if(doc.Database.Insunits!=UnitsValue.Meters && doc.Database.Insunits!=UnitsValue.Undefined) throw new System.Exception("O desenho deve estar em metros. Confira UNITS/INSUNITS."); if(!Window.MetersConfirmed) throw new System.Exception("Confirme no painel que as medidas do desenho estão em metros."); }
   static string BlockName(BlockReference b,Transaction tr) { return ((BlockTableRecord)tr.GetObject(b.IsDynamicBlock?b.DynamicBlockTableRecord:b.BlockTableRecord,OpenMode.ForRead)).Name; }
   static void ApplyRiserLayer(BlockReference b,Transaction tr,Element e) {
@@ -83,6 +102,7 @@ namespace Duall.Pluvial {
    b.LayerId=id;
   }
   internal static void Update(BlockReference b,Transaction tr,Element e) {
+   if(e.Kind!="Prumada")throw new System.Exception("Calhas e coletores estão em standby nesta versão.");
    Model.Validate(e); e.Status="Sem contribuições";
    if(e.Kind=="Calha") {
     if(BlockName(b,tr)!="DUALL-CALHA") throw new System.Exception("Escolha o bloco DUALL-CALHA para este tipo de elemento.");
@@ -106,19 +126,15 @@ namespace Duall.Pluvial {
     foreach(DynamicBlockReferenceProperty p in b.DynamicBlockReferencePropertyCollection) if(p.PropertyName.Equals("PRUMADA",StringComparison.OrdinalIgnoreCase)) property=p;
     if(property==null || property.ReadOnly) throw new System.Exception("O bloco não possui PRUMADA editável.");
     ApplyRiserLayer(b,tr,e);
-    if(e.Contributions.Count>0) {
-     double required;
-     try { required=Model.ReferenceDiameter(e.Flow); }
-     catch(System.Exception ex) { e.Diameter=0; e.Status=ex.Message+" Diâmetro gráfico mantido."; return; }
-     var available=new SortedDictionary<double,object>();
-     foreach(object value in property.GetAllowedValues()) {
-      double mm; var digits=System.Text.RegularExpressions.Regex.Match(Convert.ToString(value),@"\d+(?:[.,]\d+)?").Value;
-      if(Double.TryParse(digits.Replace(',','.'),NumberStyles.Any,CultureInfo.InvariantCulture,out mm)) available[mm]=value;
-     }
-     var chosen=available.Where(x=>x.Key>=required).FirstOrDefault();
-     if(chosen.Value==null) { e.Diameter=0; e.Status="Necessário >= "+required+" mm pela referência; indisponível no bloco. Diâmetro gráfico mantido."; }
-     else { property.Value=chosen.Value; e.Diameter=chosen.Key; e.Status="Diâmetro pela PLANILHA; verificação vertical NBR PENDENTE"; }
+    var available=new SortedDictionary<double,object>();
+    foreach(object value in property.GetAllowedValues()) {
+     double mm;var digits=System.Text.RegularExpressions.Regex.Match(Convert.ToString(value),@"\d+(?:[.,]\d+)?").Value;
+     if(Double.TryParse(digits.Replace(',','.'),NumberStyles.Any,CultureInfo.InvariantCulture,out mm))available[mm]=value;
     }
+    double actual=0;var actualDigits=System.Text.RegularExpressions.Regex.Match(Convert.ToString(property.Value),@"\d+(?:[.,]\d+)?").Value;
+    Double.TryParse(actualDigits.Replace(',','.'),NumberStyles.Any,CultureInfo.InvariantCulture,out actual);
+    Model.ResolveRiserDiameter(e,available.Keys,actual);
+    if(available.ContainsKey(e.Diameter))property.Value=available[e.Diameter];
    }
   }
   [CommandMethod("PLUSELECIONAR")]
@@ -126,7 +142,7 @@ namespace Duall.Pluvial {
    using(var tr=doc.Database.TransactionManager.StartTransaction()) {
     var b=(BlockReference)tr.GetObject(id,OpenMode.ForRead); var e=Read(b,tr);
     if(e==null) { e=Window.GetElement(); e.Id=Guid.NewGuid().ToString("N"); e.Contributions.Clear();var name=BlockName(b,tr);e.Kind=name=="DUALL-CALHA"?"Calha":(name=="DUALL-COLETOR"?"Coletor":"Prumada"); e.Status="Ainda não vinculado: preencha os dados e salve."; }
-    if(e.Kind=="Calha" && (Math.Abs(e.Length-b.ScaleFactors.X)>1e-8 || Math.Abs(e.Width-b.ScaleFactors.Y)>1e-8)) {e.Length=Math.Abs(b.ScaleFactors.X);e.Width=Math.Abs(b.ScaleFactors.Y);e.Status="Geometria alterada. Salve e recalcule para atualizar os registros.";}
+    if(e.Kind!="Prumada" || !BlockName(b,tr).Equals(RiserBlockName,StringComparison.OrdinalIgnoreCase))throw new System.Exception("Selecione uma D-Prumada-Plu. Calhas e coletores estão em standby.");
     Selected=id; SelectedDb=doc.Database; Window.LoadElement(e);
    }
   }); }
@@ -138,23 +154,36 @@ namespace Duall.Pluvial {
   [CommandMethod("PLUADICIONAR")]
   public void Add() { Run(doc=> { Meters(doc); CheckSelected(doc); var e=Window.GetElement(); Model.Validate(e);
    var settings=Window.GetContribution(); var floors=Model.Floors(settings.Floor);
-   var opts=new PromptSelectionOptions(); opts.MessageForAdding="\nSelecione contornos fechados em projeção horizontal: ";
-   var selection=doc.Editor.GetSelection(opts,new SelectionFilter(new[]{new TypedValue((int)DxfCode.Start,"LWPOLYLINE")}));
+   var opts=new PromptSelectionOptions(); opts.MessageForAdding=settings.Kind=="Sacada"?"\nSelecione polylines das sacadas (largura = Length total): ":"\nSelecione contornos fechados em projeção horizontal: ";
+   var selection=SelectMany(doc,opts,new SelectionFilter(new[]{new TypedValue((int)DxfCode.Start,"LWPOLYLINE")}));
    if(selection.Status!=PromptStatus.OK)return;
    int duplicates=0;
    using(var tr=doc.Database.TransactionManager.StartTransaction()) {
     foreach(ObjectId id in selection.Value.GetObjectIds()) {
      var poly=(Polyline)tr.GetObject(id,OpenMode.ForRead);
-     if(!poly.Closed || poly.Area<=0 || Math.Abs(poly.Normal.Z)<.999999) throw new System.Exception("Há um contorno aberto, não horizontal ou sem área.");
+     if(Math.Abs(poly.Normal.Z)<.999999)throw new System.Exception("Selecione polylines em projeção horizontal.");
+     double contributionArea,balconyWidth=0;
+     if(settings.Kind=="Sacada") {
+      balconyWidth=poly.Length;
+      contributionArea=Model.BalconyArea(balconyWidth,settings.BalconyHeight);
+     } else {
+      if(!poly.Closed || poly.Area<=0)throw new System.Exception("Telhados e implantação exigem contornos fechados com área positiva.");
+      contributionArea=poly.Area;
+     }
      string origin=ReadText(poly,tr,"DUALL_PLUVIAL_ORIGIN");
-     if(origin==null) { origin=Guid.NewGuid().ToString("N"); WriteText(poly,tr,"DUALL_PLUVIAL_ORIGIN",origin); }
+     string owner=Convert.ToString(doc.Database.FingerprintGuid)+"|"+poly.Handle.ToString();
+     string previousOwner=ReadText(poly,tr,"DUALL_PLUVIAL_OWNER");
+     string source=ReadText(poly,tr,"DUALL_PLUVIAL_SOURCE");
+     if(origin==null || (previousOwner!=null && previousOwner!=owner)) {
+      origin=Guid.NewGuid().ToString("N");source=null;
+     }
+     if(source==null)source=Model.LegacySource("["+poly.Handle.ToString()+"]",Path.GetFileName(doc.Name));
+     WriteText(poly,tr,"DUALL_PLUVIAL_ORIGIN",origin);
+     WriteText(poly,tr,"DUALL_PLUVIAL_OWNER",owner);
+     WriteText(poly,tr,"DUALL_PLUVIAL_SOURCE",source);
      foreach(string floor in floors) {
-      var c=new Contribution {Origin=origin,Name=settings.Name+" ["+poly.Handle.ToString()+"]",Kind=settings.Kind,Floor=floor,Area=poly.Area,Extra=settings.Extra,Drawing=Path.GetFileName(doc.Name)};
-      var old=e.Contributions.FirstOrDefault(x=>x.Key==c.Key);
-      if(old!=null) {
-       if(Math.Abs(old.Area-c.Area)>1e-8 || Math.Abs(old.Extra-c.Extra)>1e-8) throw new System.Exception("Área já registrada com valores diferentes. Remova o registro antigo no painel e adicione novamente.");
-       duplicates++;
-      } else e.Contributions.Add(c);
+      var c=new Contribution {Origin=origin,Source=source,Name=settings.Name+" ["+poly.Handle.ToString()+"]",Kind=settings.Kind,Floor=floor,Area=contributionArea,Extra=settings.Extra,Drawing=Path.GetFileName(doc.Name),Formula=settings.Formula,BalconyWidth=balconyWidth,BalconyHeight=settings.BalconyHeight};
+      if(!Model.AddContribution(e,c))duplicates++;
      }
     }
     var b=(BlockReference)tr.GetObject(Selected,OpenMode.ForWrite); Update(b,tr,e); Save(b,tr,e); tr.Commit();
@@ -164,13 +193,14 @@ namespace Duall.Pluvial {
   [CommandMethod("PLUUNIR")]
   public void Merge() { Run(doc=> { CheckSelected(doc); var e=Window.GetElement(); Model.Validate(e);
    var options=new PromptSelectionOptions(); options.MessageForAdding="\nSelecione os blocos de origem para somar ao elemento do painel: ";
-   var r=doc.Editor.GetSelection(options,new SelectionFilter(new[]{new TypedValue((int)DxfCode.Start,"INSERT")})); if(r.Status!=PromptStatus.OK)return;
+   var r=SelectMany(doc,options,new SelectionFilter(new[]{new TypedValue((int)DxfCode.Start,"INSERT")})); if(r.Status!=PromptStatus.OK)return;
    int duplicate=0;
    using(var tr=doc.Database.TransactionManager.StartTransaction()) {
     foreach(ObjectId id in r.Value.GetObjectIds()) {
      if(id==Selected) throw new System.Exception("Não inclua o próprio bloco de destino na seleção.");
      var source=Read((BlockReference)tr.GetObject(id,OpenMode.ForRead),tr);
      if(source==null) throw new System.Exception("Um dos blocos ainda não possui dados Pluvial.");
+     if(source.Kind!="Prumada")throw new System.Exception("Selecione apenas prumadas para unir.");
      duplicate+=Model.Merge(e,source);
     }
     var b=(BlockReference)tr.GetObject(Selected,OpenMode.ForWrite); Update(b,tr,e); Save(b,tr,e); tr.Commit();
@@ -188,12 +218,12 @@ namespace Duall.Pluvial {
    var line=new Line(new Point3d(0,.5,0),new Point3d(1,.5,0)); def.AppendEntity(line); tr.AddNewlyCreatedDBObject(line,true); return id;
   }
   [CommandMethod("PLUINSERIRCALHA")]
-  public void InsertGutter() { Insert("Calha"); }
+  public void InsertGutter() { Run(doc=>Window.Notify("Calhas em standby nesta versão.")); }
   [CommandMethod("PLUINSERIRPRUMADA")]
   public void InsertRiser() { Insert("Prumada"); }
   [CommandMethod("PLUINSERIRCOLETOR")]
-  public void InsertCollector() {Insert("Coletor");}
-  void Insert(string kind) { Run(doc=> { Meters(doc); var e=Window.GetElement(); e=Model.Copy(e); e.Id=Guid.NewGuid().ToString("N"); e.Kind=kind; e.Contributions.Clear(); e.Diameter=0; Model.Validate(e);
+  public void InsertCollector() {Run(doc=>Window.Notify("Coletores em standby nesta versão."));}
+  void Insert(string kind) { Run(doc=> { Meters(doc); var e=Window.GetElement(); e=Model.Copy(e); e.Id=Guid.NewGuid().ToString("N"); e.Kind=kind; e.Contributions.Clear(); e.Diameter=0; e.SuggestedDiameter=0; e.ManualDiameter=0; Model.Validate(e);
    var pt=doc.Editor.GetPoint("\nPonto de inserção: "); if(pt.Status!=PromptStatus.OK)return;
    ObjectId definition=ObjectId.Null;
    if(kind=="Prumada") {
@@ -258,37 +288,35 @@ namespace Duall.Pluvial {
       e.Service="Reuso";Update(b,tr,e);Save(b,tr,e);
       if(b.Layer!="D-HID-APV-TET" || e.Diameter!=150)throw new System.Exception("Layer reuso ou diâmetro incorreto.");
       report.Add("PASS: Pluvial/Reuso alteram somente sistema e layer, preservando diâmetro.");
-      var gutter=new BlockReference(new Point3d(1,0,0),CalhaDefinition(db,tr));model.AppendEntity(gutter);tr.AddNewlyCreatedDBObject(gutter,true);
-      var g=Model.Copy(e);g.Kind="Calha";g.Name="CALHA-01";g.Id=Guid.NewGuid().ToString("N");Update(gutter,tr,g);Save(gutter,tr,g);
-      if(Math.Abs(gutter.ScaleFactors.X-3)>1e-8 || Math.Abs(gutter.ScaleFactors.Y-.3)>1e-8)throw new System.Exception("Escala da calha incorreta.");report.Add("PASS: calha criada com comprimento 3 m e largura 0,30 m.");
-      var handles=new GripDataCollection();handles.Add(new GutterGrip {Axis=0});
-      grips.MoveGripPointsAt(gutter,handles,new Vector3d(1,0,0),(MoveGripPointsFlags)0);
-      if(Math.Abs(Read(gutter,tr).Length-4)>1e-8 || Math.Abs(gutter.ScaleFactors.X-4)>1e-8)throw new System.Exception("Alça de comprimento não atualizou dados e geometria.");
-      report.Add("PASS: alça de comprimento atualiza geometria e registro para 4 m.");
+      for(int n=0;n<20;n++)Model.AddContribution(e,new Contribution {Origin="area-"+n,Name="Teste "+n,Kind="Sacada",Floor="P01",Area=1});
+      Update(b,tr,e);Save(b,tr,e);
+      var stored=Read(b,tr);
+      if(stored.Contributions.Count!=21 || stored.Area!=100)throw new System.Exception("Perda de registros ao salvar várias contribuições.");
+      report.Add("PASS: 21 contribuições persistidas em Xrecord, total de 100 m².");
       tr.Commit();
      }
      using(var target=new Database(true,true)) {
       target.Insunits=UnitsValue.Meters;var mapping=new IdMapping();db.WblockCloneObjects(new ObjectIdCollection(new[]{riserId}),SymbolUtilityServices.GetBlockModelSpaceId(target),mapping,DuplicateRecordCloning.Ignore,false);
       using(var tr=target.TransactionManager.StartTransaction()) {
        var b=(BlockReference)tr.GetObject(mapping[riserId].Value,OpenMode.ForRead);var e=Read(b,tr);
-       if(e==null || e.Area!=80 || e.Contributions[0].Origin!="teste-area" || !b.IsDynamicBlock)throw new System.Exception("Dados não sobreviveram à cópia entre bancos DWG.");
+       if(e==null || e.Area!=100 || e.Contributions.Count!=21 || e.Contributions[0].Origin!="teste-area" || !b.IsDynamicBlock)throw new System.Exception("Dados não sobreviveram à cópia entre bancos DWG.");
        report.Add("PASS: cópia entre DWGs preserva origem, área e bloco dinâmico.");
       }
-      target.SaveAs(Path.Combine(Folder,"Teste-transferencia.dwg"),DwgVersion.Current);
+      target.SaveAs(Path.Combine(Folder,"Teste-transferencia-1.2.dwg"),DwgVersion.Current);
      }
-     db.SaveAs(Path.Combine(Folder,"Biblioteca-Pluvial.dwg"),DwgVersion.Current);
+     db.SaveAs(Path.Combine(Folder,"Teste-Prumadas-1.2.dwg"),DwgVersion.Current);
     }
     using(var reopened=new Database(false,true)) {
-     reopened.ReadDwgFile(Path.Combine(Folder,"Biblioteca-Pluvial.dwg"),FileOpenMode.OpenForReadAndAllShare,true,"");
+     reopened.ReadDwgFile(Path.Combine(Folder,"Teste-Prumadas-1.2.dwg"),FileOpenMode.OpenForReadAndAllShare,true,"");
      using(var tr=reopened.TransactionManager.StartTransaction()) {
       var model=(BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(reopened),OpenMode.ForRead);int found=0;
       foreach(ObjectId id in model){var b=tr.GetObject(id,OpenMode.ForRead) as BlockReference;if(b!=null && Read(b,tr)!=null)found++;}
-      if(found!=2)throw new System.Exception("Esperados 2 blocos com dados após reabertura.");report.Add("PASS: arquivo salvo e reaberto com os dois blocos e registros.");
+      if(found!=1)throw new System.Exception("Esperado 1 bloco com dados após reabertura.");report.Add("PASS: arquivo salvo e reaberto com a prumada e seus registros.");
      }
     }
     report.Add("Concluído. Biblioteca contém exemplos com dados fictícios; inserir novos elementos pelo painel.");
    }catch(System.Exception e){report.Add("FAIL: "+e.ToString());}
-   File.WriteAllLines(Path.Combine(Folder,"verificacao-gstarcad.txt"),report,Encoding.UTF8);
+   File.WriteAllLines(Path.Combine(Folder,"verificacao-gstarcad-1.2.txt"),report,Encoding.UTF8);
    App.DocumentManager.MdiActiveDocument.Editor.WriteMessage("\n"+String.Join("\n",report)+"\n");
   }
  }
@@ -316,3 +344,8 @@ namespace Duall.Pluvial {
   }
  }
 }
+
+
+
+
+
